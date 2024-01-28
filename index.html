@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>game life</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: #131313;
+        }
+
+        .cell {
+            width: 16px;
+            height: 16px;
+            background-color: black;
+        }
+
+        .row {
+            display: flex;
+            flex-direction: row;
+        }
+
+        .cell:hover {
+            border: 1px solid red;
+        }
+
+        .alive {
+            background-color: white;
+        }
+
+        #root {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="root"></div>
+    <script>
+
+        /*
+
+    Всё что я знаю, это правила, и больше ничего
+
+    Любая живая клетка, имеющая менее двух живых соседей, умирает, как будто из-за недостаточной численности населения.
+    Любая живая клетка с двумя или тремя живыми соседями доживает до следующего поколения.
+    Любая живая клетка, имеющая более трёх живых соседей, погибает, как бы от перенаселения.
+    Любая мертвая клетка, имеющая ровно три живых соседа, становится живой клеткой, как бы путем размножения.
+
+        */
+
+        class Cell {
+            constructor(isAlive, x, y) {
+                this.x = x;
+                this.y = y;
+                this.isAlive = isAlive;
+
+                // Имеем ввиду, что может быть и undefined. Это маловажно, но это говорит, что там вообще клетки нет
+                this.l = false;
+                this.r = false;
+                this.t = false;
+                this.b = false;
+
+                this.lt = false;
+                this.rt = false;
+                this.lb = false;
+                this.rb = false;
+
+                // Чтобы потом перебрать как обстоят дела вокруг
+                this.around = [
+                    this.lt, this.t, this.rt,
+                    this.l, /* Me */ this.r,
+                    this.lb, this.b, this.rb,
+                ];
+            }
+
+            // Вообще, modSelf должен был наживую обновлять клетку в лайв-режиме, но я только и предполагал, что будут с этим проблемы. Вещь не используется, но мало ли
+            kill(modSelf = false) {
+                if (modSelf) this.isAlive = false;
+                return false;
+            }
+
+            // Суть та же
+            reanimate(modSelf = false) {
+                if (modSelf) this.isAlive = true;
+                return true;
+            }
+
+            // Проверяет, будет ли эта клетка жить при её условиях. mod(ificate)Self собственно обновит статус isAlive, но всё равно вернёт будущее состояние
+            checkIsAlive(modSelf = false) {
+                // Считаем сколько живых вокруг
+                const countIsLife = this.around.reduce((prevR, currV) =>
+                    currV === true ? prevR + 1 : prevR,
+                    0
+                );
+                // Перебираем правила что описаны выше
+                if (this.isAlive && countIsLife < 2) return this.kill(modSelf);
+                else if (this.isAlive && countIsLife > 3) return this.kill(modSelf);
+                else if (!this.isAlive && countIsLife === 3) return this.reanimate(modSelf);
+                else return this.isAlive; // Оставляем как есть, если клетка в хороших условиях (или некому её реанимировать)
+            }
+
+            // Мы можем обратится к клетке и обновить её isAlive, но в таком случае, необходимо будет выполнить обновление для ближайших клеток
+            // Ниже функция updateAroundMap перебирает все клетки для их информирования о соседях. Чтобы не терялись :)
+            // Работает аналогично инициализации конструктора, только мы используем map
+            updateAround(map) {
+                this.l = map[this.y]?.[this.x - 1]?.isAlive;
+                this.r = map[this.y]?.[this.x + 1]?.isAlive;
+                this.t = map[this.y - 1]?.[this.x]?.isAlive;
+                this.b = map[this.y + 1]?.[this.x]?.isAlive;
+
+                this.lt = map[this.y - 1]?.[this.x - 1]?.isAlive;
+                this.rt = map[this.y - 1]?.[this.x + 1]?.isAlive;
+                this.lb = map[this.y + 1]?.[this.x - 1]?.isAlive;
+                this.rb = map[this.y + 1]?.[this.x + 1]?.isAlive;
+
+                this.around = [
+                    this.lt, this.t, this.rt,
+                    this.l, /* Me */ this.r,
+                    this.lb, this.b, this.rb,
+                ];
+
+                return this.around;
+            }
+        }
+
+        // Ширина и высота, окда?
+        const MAP_X = 32;
+        const MAP_Y = 32;
+
+        // Создаём карту клеток. Шикарная двойная функция Array.from :D
+        var MAP = Array.from({ length: MAP_X },
+            (_, y) => Array.from({ length: MAP_Y },
+                (_, x) => new Cell(false, x, y)));
+
+        const root = document.getElementById('root');
+
+        // хз, но на всякий. Думал что буду пересоздавать компоненты, но эта операция тяжелая и вообще лишние операции был создало
+        const clear = el => el && [...el.childNodes].forEach(cEl => cEl.remove());
+
+        // Обновляем классы у дом дерева клеток
+        const updateVisualMap = () => {
+            const rows = root.childNodes;
+            for (const y in MAP) {
+                const row = rows[y];
+                if (!row) continue;
+                for (const x in MAP) {
+                    const cell = row.childNodes[x];
+                    if (!cell) continue;
+                    if (MAP[y][x].isAlive) cell.classList.add('alive');
+                    else cell.classList.remove('alive');
+                }
+            }
+        }
+
+        // Обновление соседей каждой клетки
+        const updateAroundMap = () => MAP.forEach(r => r.forEach(c => c.updateAround(MAP)));
+
+        // Здесь генерация дом дерева клеток
+        const genVisualMap = () => {
+            for (let y = 0; y < MAP_Y; y++) {
+                const row = document.createElement('div');
+                row.className = 'row';
+                for (let x = 0; x < MAP_X; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.onclick = (e) => {
+                        MAP[y][x].isAlive = cell.classList.toggle('alive'); // При нажатии на клетку, меняем и класс, и статус клетки
+                                                                            // На следующем тике состояния клеток будут обновлены и будет расчёт следующего шага
+                    }
+                    row.append(cell);
+                }
+                root.append(row);
+            }
+        }
+
+        // Обновляем соседей у всех
+        // Генерим следующий шаг карты и сохраняем
+        // Обновляем визуализацию карты
+        const nextTick = _ => {
+            updateAroundMap();
+            MAP = Array.from({ length: MAP_X },
+                (_, y) => Array.from({ length: MAP_Y },
+                    (_, x) => new Cell(MAP[y][x].checkIsAlive(), x, y)));
+            updateVisualMap();
+        }
+
+
+        clear(root); // ...а так, просто всякий возможный мусор убираю из root :)
+        genVisualMap(); // Генерим карту из размеров
+
+        // Ну и лайв режим...
+        var auto = false;
+        const setLiveMode = () => auto = !auto;
+        setInterval(() => auto && nextTick(), 100);
+
+        // Ставим всем статус "мертв" и обновляем соседей и генерим новую карту
+        const clearMap = () => MAP.forEach(r => r.forEach(c => c.isAlive = false)) || nextTick();
+
+    </script>
+    <button onclick="nextTick()">next tick</button>
+    <button onclick="setLiveMode()">live mode</button>
+    <button onclick="clearMap()">clear map</button>
+</body>
+
+</html>
