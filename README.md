@@ -11,4 +11,4 @@ The code was written in about 2 hours and 30 minutes :)
 ## TODO
 - [ ] Loop the map
 - [ ] Or create infinte map ?
-- [ ] Placing cells by pressing the mouse button
+- [ ] Placing cells by holding the mouse button
