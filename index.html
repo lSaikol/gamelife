@@ -17,15 +17,16 @@
             background: #131313;
         }
 
+        .row {
+            display: flex;
+            flex-direction: row;
+        }
+
         .cell {
             width: 16px;
             height: 16px;
             background-color: black;
-        }
-
-        .row {
-            display: flex;
-            flex-direction: row;
+            border: 1px solid rgb(45, 45, 45);
         }
 
         .cell:hover {
@@ -45,11 +46,10 @@
 
 <body>
     <div id="root"></div>
+    <p style="color:white; padding-top: 20px; padding-bottom: 20px;">Move Cam - (← ↑ → ↓)</p>
     <script>
 
         /*
-
-    Всё что я знаю, это правила, и больше ничего
 
     Любая живая клетка, имеющая менее двух живых соседей, умирает, как будто из-за недостаточной численности населения.
     Любая живая клетка с двумя или тремя живыми соседями доживает до следующего поколения.
@@ -58,124 +58,142 @@
 
         */
 
+        const pos2str = (x = 0, y = 0) => `${x}:${y}`;
+        const str2pos = (pos = "0:0") => pos.split(":").map(v => +v);
+
         class Cell {
-            constructor(isAlive, x, y) {
+            constructor(x, y) {
+                this.key = pos2str(x, y);
                 this.x = x;
                 this.y = y;
-                this.isAlive = isAlive;
 
-                // Имеем ввиду, что может быть и undefined. Это маловажно, но это говорит, что там вообще клетки нет
-                this.l = false;
-                this.r = false;
-                this.t = false;
-                this.b = false;
-
-                this.lt = false;
-                this.rt = false;
-                this.lb = false;
-                this.rb = false;
-
-                // Чтобы потом перебрать как обстоят дела вокруг
-                this.around = [
-                    this.lt, this.t, this.rt,
-                    this.l, /* Me */ this.r,
-                    this.lb, this.b, this.rb,
-                ];
+                this.aroundKeyPoints = [];
+                
+                for (let _y = -1; _y < 2; _y++) {
+                    for (let _x = -1; _x < 2; _x++) {
+                        if (!_x && !_y) continue; // игнор центральной точки
+                        this.aroundKeyPoints.push(pos2str(this.x + _x, this.y + _y));
+                    }
+                }
             }
 
-            // Вообще, modSelf должен был наживую обновлять клетку в лайв-режиме, но я только и предполагал, что будут с этим проблемы. Вещь не используется, но мало ли
-            kill(modSelf = false) {
-                if (modSelf) this.isAlive = false;
-                return false;
-            }
-
-            // Суть та же
-            reanimate(modSelf = false) {
-                if (modSelf) this.isAlive = true;
-                return true;
-            }
-
-            // Проверяет, будет ли эта клетка жить при её условиях. mod(ificate)Self собственно обновит статус isAlive, но всё равно вернёт будущее состояние
-            checkIsAlive(modSelf = false) {
-                // Считаем сколько живых вокруг
-                const countIsLife = this.around.reduce((prevR, currV) =>
-                    currV === true ? prevR + 1 : prevR,
-                    0
-                );
-                // Перебираем правила что описаны выше
-                if (this.isAlive && countIsLife < 2) return this.kill(modSelf);
-                else if (this.isAlive && countIsLife > 3) return this.kill(modSelf);
-                else if (!this.isAlive && countIsLife === 3) return this.reanimate(modSelf);
-                else return this.isAlive; // Оставляем как есть, если клетка в хороших условиях (или некому её реанимировать)
-            }
-
-            // Мы можем обратится к клетке и обновить её isAlive, но в таком случае, необходимо будет выполнить обновление для ближайших клеток
-            // Ниже функция updateAroundMap перебирает все клетки для их информирования о соседях. Чтобы не терялись :)
-            // Работает аналогично инициализации конструктора, только мы используем map
-            updateAround(map) {
-                this.l = map[this.y]?.[this.x - 1]?.isAlive;
-                this.r = map[this.y]?.[this.x + 1]?.isAlive;
-                this.t = map[this.y - 1]?.[this.x]?.isAlive;
-                this.b = map[this.y + 1]?.[this.x]?.isAlive;
-
-                this.lt = map[this.y - 1]?.[this.x - 1]?.isAlive;
-                this.rt = map[this.y - 1]?.[this.x + 1]?.isAlive;
-                this.lb = map[this.y + 1]?.[this.x - 1]?.isAlive;
-                this.rb = map[this.y + 1]?.[this.x + 1]?.isAlive;
-
-                this.around = [
-                    this.lt, this.t, this.rt,
-                    this.l, /* Me */ this.r,
-                    this.lb, this.b, this.rb,
-                ];
-
-                return this.around;
+            calcCountAround(mapmgr) {
+                return this.aroundKeyPoints.reduce((prev, pos) => prev + !!mapmgr.getPoint(...str2pos(pos)), 0);
             }
         }
 
-        // Ширина и высота, окда?
-        const MAP_X = 32;
-        const MAP_Y = 32;
+        class Vector2 {
+            constructor(x = 0, y = 0) {
+                this.x = x;
+                this.y = y;
+            }
 
-        // Создаём карту клеток. Шикарная двойная функция Array.from :D
-        var MAP = Array.from({ length: MAP_X },
-            (_, y) => Array.from({ length: MAP_Y },
-                (_, x) => new Cell(false, x, y)));
+            toString() {
+                return pos2str(this.x, this.y);
+            }
+        }
+
+        class MapManager {
+            constructor() {
+                this.map = new Map();
+            }
+            clear() { this.map.clear(); }
+            getPoint(x, y) { return this.map.get(pos2str(x, y)); }
+            setPoint(x, y) { this.map.set(pos2str(x, y), new Cell(x, y)); return true; }
+            unsetPoint(x, y) { this.map.delete(pos2str(x, y)); }
+        }
+
+        class World {
+            constructor() {
+                this.mapmgr = new MapManager();
+
+                this.viewport = {
+                    pos: new Vector2(),
+                    size: new Vector2(32, 32),
+                };
+
+            }
+
+            countAroundPoint(x, y) {
+                let count = 0;
+                for (let _y = -1; _y < 2; _y++) {
+                    for (let _x = -1; _x < 2; _x++) {
+                        if (!_x && !_y) continue; // игнор центральной точки
+                        count += !!this.mapmgr.getPoint(x + _x, y + _y);
+                    }
+                }
+                return count;
+            }
+
+            checkIsAlive(isAlive, countAliveAround) {
+                if (isAlive && countAliveAround < 2) return false;
+                else if (isAlive && countAliveAround > 3) return false;
+                else if (!isAlive && countAliveAround === 3) return true;
+                else return isAlive;
+            }
+
+            // TODO: Тут есть ещё много чего, что можно оптимизировать
+            nextTick() {
+                const nextMap = new MapManager();
+                this.mapmgr.map.forEach((cell, k) => {
+                    // Проверяем мёртвые клетки вокруг
+                    cell.aroundKeyPoints.forEach(pos => {
+                        const aroundCell = this.mapmgr.getPoint(pos);
+                        const numPos = str2pos(pos);
+                        if (!aroundCell && this.checkIsAlive(false, this.countAroundPoint(...numPos)))
+                            nextMap.setPoint(...numPos);
+
+                    });
+
+                    if (this.checkIsAlive(true, cell.calcCountAround(this.mapmgr))) {
+                        nextMap.setPoint(cell.x, cell.y);
+                    }
+
+                });
+                this.mapmgr = nextMap;
+            }
+        }
+
+        var WORLD = new World();
 
         const root = document.getElementById('root');
 
-        // хз, но на всякий. Думал что буду пересоздавать компоненты, но эта операция тяжелая и вообще лишние операции был создало
         const clear = el => el && [...el.childNodes].forEach(cEl => cEl.remove());
 
-        // Обновляем классы у дом дерева клеток
         const updateVisualMap = () => {
             const rows = root.childNodes;
-            for (const y in MAP) {
+            for (let y = 0; y < WORLD.viewport.size.y; y++) {
                 const row = rows[y];
-                if (!row) continue;
-                for (const x in MAP) {
+                for (let x = 0; x < WORLD.viewport.size.x; x++) {
                     const cell = row.childNodes[x];
+                    const virtCell = WORLD.mapmgr.getPoint(WORLD.viewport.pos.x + x, WORLD.viewport.pos.y + y);
                     if (!cell) continue;
-                    if (MAP[y][x].isAlive) cell.classList.add('alive');
-                    else cell.classList.remove('alive');
+                    
+                    if (!virtCell) cell.classList.remove('alive');
+                    else cell.classList.add('alive');
                 }
             }
         }
 
-        // Обновление соседей каждой клетки
-        const updateAroundMap = () => MAP.forEach(r => r.forEach(c => c.updateAround(MAP)));
-
-        // Здесь генерация дом дерева клеток
         const genVisualMap = () => {
-            for (let y = 0; y < MAP_Y; y++) {
+            for (let y = 0; y < WORLD.viewport.size.y; y++) {
                 const row = document.createElement('div');
                 row.className = 'row';
-                for (let x = 0; x < MAP_X; x++) {
+                for (let x = 0; x < WORLD.viewport.size.x; x++) {
                     const cell = document.createElement('div');
                     cell.className = 'cell';
                     cell.onclick = (e) => {
-                        MAP[y][x].isAlive = cell.classList.toggle('alive'); // При нажатии на клетку, меняем и класс, и статус клетки
-                                                                            // На следующем тике состояния клеток будут обновлены и будет расчёт следующего шага
+                        const vx = WORLD.viewport.pos.x + x;
+                        const vy = WORLD.viewport.pos.y + y;
+
+                        const alive = WORLD.mapmgr.getPoint(vx, vy);
+                        if (!alive) {
+                            WORLD.mapmgr.setPoint(vx, vy);
+                            cell.classList.add('alive');
+                        } else {
+                            WORLD.mapmgr.unsetPoint(vx, vy);
+                            cell.classList.remove('alive');
+                        }
                     }
                     row.append(cell);
                 }
@@ -183,28 +201,41 @@
             }
         }
 
-        // Обновляем соседей у всех
-        // Генерим следующий шаг карты и сохраняем
-        // Обновляем визуализацию карты
-        const nextTick = _ => {
-            updateAroundMap();
-            MAP = Array.from({ length: MAP_X },
-                (_, y) => Array.from({ length: MAP_Y },
-                    (_, x) => new Cell(MAP[y][x].checkIsAlive(), x, y)));
+        clear(root);
+        genVisualMap();
+
+        function nextTick() {
+            WORLD.nextTick();
             updateVisualMap();
         }
 
+        document.addEventListener('keydown', e => {
+            switch(e.key) {
+                case "ArrowLeft": {
+                    WORLD.viewport.pos.x--;
+                    break;
+                }
+                case "ArrowRight": {
+                    WORLD.viewport.pos.x++;
+                    break;
+                }
+                case "ArrowUp": {
+                    WORLD.viewport.pos.y--;
+                    break;
+                }
+                case "ArrowDown": {
+                    WORLD.viewport.pos.y++;
+                    break;
+                }
+            }
+            updateVisualMap();
+        });
 
-        clear(root); // ...а так, просто всякий возможный мусор убираю из root :)
-        genVisualMap(); // Генерим карту из размеров
-
-        // Ну и лайв режим...
         var auto = false;
         const setLiveMode = () => auto = !auto;
         setInterval(() => auto && nextTick(), 100);
 
-        // Ставим всем статус "мертв" и обновляем соседей и генерим новую карту
-        const clearMap = () => MAP.forEach(r => r.forEach(c => c.isAlive = false)) || nextTick();
+        const clearMap = () => WORLD.mapmgr.clear();
 
     </script>
     <button onclick="nextTick()">next tick</button>
