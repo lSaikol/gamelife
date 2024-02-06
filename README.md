@@ -9,6 +9,5 @@ The code was written in about 2 hours and 30 minutes :)
 3. And enjoy :)
 
 ## TODO
-- [ ] Loop the map
-- [ ] Or create infinte map ?
+- [X] Create infinte map (+ 2h 50m)
 - [ ] Placing cells by holding the mouse button
