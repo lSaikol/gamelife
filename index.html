@@ -58,38 +58,15 @@
 
         */
 
+        // Преобразования не лучшая затея... Но нужны ключи в виде примитивов для получения факта существования клетки
         const pos2str = (x = 0, y = 0) => `${x}:${y}`;
-        const str2pos = (pos = "0:0") => pos.split(":").map(v => +v);
-
-        class Cell {
-            constructor(x, y) {
-                this.key = pos2str(x, y);
-                this.x = x;
-                this.y = y;
-
-                this.aroundKeyPoints = [];
-                
-                for (let _y = -1; _y < 2; _y++) {
-                    for (let _x = -1; _x < 2; _x++) {
-                        if (!_x && !_y) continue; // игнор центральной точки
-                        this.aroundKeyPoints.push(pos2str(this.x + _x, this.y + _y));
-                    }
-                }
-            }
-
-            calcCountAround(mapmgr) {
-                return this.aroundKeyPoints.reduce((prev, pos) => prev + !!mapmgr.getPoint(...str2pos(pos)), 0);
-            }
-        }
+        const str2pos = (pos = "0:0") => pos.split(":").map(v => +v); // Для полной бесконечности можно использовать BigInt.
+                                                                             // Нужно будет отредактировать код под BigInt
 
         class Vector2 {
             constructor(x = 0, y = 0) {
                 this.x = x;
                 this.y = y;
-            }
-
-            toString() {
-                return pos2str(this.x, this.y);
             }
         }
 
@@ -98,8 +75,8 @@
                 this.map = new Map();
             }
             clear() { this.map.clear(); }
-            getPoint(x, y) { return this.map.get(pos2str(x, y)); }
-            setPoint(x, y) { this.map.set(pos2str(x, y), new Cell(x, y)); return true; }
+            hasPoint(x, y) { return this.map.has(pos2str(x, y)); }
+            setPoint(x, y) { this.map.set(pos2str(x, y), true); return true; }
             unsetPoint(x, y) { this.map.delete(pos2str(x, y)); }
         }
 
@@ -114,15 +91,16 @@
 
             }
 
-            countAroundPoint(x, y) {
-                let count = 0;
-                for (let _y = -1; _y < 2; _y++) {
-                    for (let _x = -1; _x < 2; _x++) {
-                        if (!_x && !_y) continue; // игнор центральной точки
-                        count += !!this.mapmgr.getPoint(x + _x, y + _y);
-                    }
-                }
-                return count;
+            countAlivePoints(arrPoints) {
+                return arrPoints.reduce((prev, pos) => prev + !!this.mapmgr.hasPoint(...str2pos(pos)), 0);
+            }
+
+            aroundPoints(x, y) {
+                return [
+                    pos2str(x-1, y-1), pos2str(x, y-1), pos2str(x+1, y-1),
+                    pos2str(x-1, y),                    pos2str(x+1, y),
+                    pos2str(x-1, y+1), pos2str(x, y+1), pos2str(x+1, y+1),
+                ];
             }
 
             checkIsAlive(isAlive, countAliveAround) {
@@ -135,20 +113,22 @@
             // TODO: Тут есть ещё много чего, что можно оптимизировать
             nextTick() {
                 const nextMap = new MapManager();
-                this.mapmgr.map.forEach((cell, k) => {
-                    // Проверяем мёртвые клетки вокруг
-                    cell.aroundKeyPoints.forEach(pos => {
-                        const aroundCell = this.mapmgr.getPoint(pos);
-                        const numPos = str2pos(pos);
-                        if (!aroundCell && this.checkIsAlive(false, this.countAroundPoint(...numPos)))
-                            nextMap.setPoint(...numPos);
+                this.mapmgr.map.forEach((_, posKey) => {
+                    const numPos = str2pos(posKey)
+                    const aroundKeyPoints = this.aroundPoints(...numPos);
 
+                    aroundKeyPoints.forEach(pos => {
+                        const aroundCell = this.mapmgr.hasPoint(pos);
+                        if (!aroundCell) {
+                            const numPos = str2pos(pos);
+                            if (this.checkIsAlive(false, this.countAlivePoints(this.aroundPoints(...numPos))))
+                                nextMap.setPoint(...numPos);
+                        }
                     });
 
-                    if (this.checkIsAlive(true, cell.calcCountAround(this.mapmgr))) {
-                        nextMap.setPoint(cell.x, cell.y);
+                    if (this.checkIsAlive(true, this.countAlivePoints(this.aroundPoints(...numPos)))) {
+                        nextMap.setPoint(...numPos);
                     }
-
                 });
                 this.mapmgr = nextMap;
             }
@@ -162,11 +142,13 @@
 
         const updateVisualMap = () => {
             const rows = root.childNodes;
+            if (!rows) throw new Error('#root element is not defined');
             for (let y = 0; y < WORLD.viewport.size.y; y++) {
                 const row = rows[y];
+                if (!row) continue;
                 for (let x = 0; x < WORLD.viewport.size.x; x++) {
                     const cell = row.childNodes[x];
-                    const virtCell = WORLD.mapmgr.getPoint(WORLD.viewport.pos.x + x, WORLD.viewport.pos.y + y);
+                    const virtCell = WORLD.mapmgr.hasPoint(WORLD.viewport.pos.x + x, WORLD.viewport.pos.y + y);
                     if (!cell) continue;
                     
                     if (!virtCell) cell.classList.remove('alive');
@@ -186,7 +168,7 @@
                         const vx = WORLD.viewport.pos.x + x;
                         const vy = WORLD.viewport.pos.y + y;
 
-                        const alive = WORLD.mapmgr.getPoint(vx, vy);
+                        const alive = WORLD.mapmgr.hasPoint(vx, vy);
                         if (!alive) {
                             WORLD.mapmgr.setPoint(vx, vy);
                             cell.classList.add('alive');
